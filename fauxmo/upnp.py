@@ -8,9 +8,11 @@ import uuid
 import time
 
 from .protocol import SETUP_XML
+from . import Loggable
+from .log import logger
 
 
-class UPNPDevice(object):
+class UPNPDevice(Loggable):
     this_host_ip = None
 
     @staticmethod
@@ -23,7 +25,7 @@ class UPNPDevice(object):
             except:
                 UPNPDevice.this_host_ip = '127.0.0.1'
             del(temp_socket)
-            print("got local address of %s" % UPNPDevice.this_host_ip)
+            logger.debug("got local address of %s" % UPNPDevice.this_host_ip)
         return UPNPDevice.this_host_ip
 
 
@@ -74,7 +76,7 @@ class UPNPDevice(object):
         return "unknown"
 
     def respond_to_search(self, destination, search_target):
-        print("Responding to search for %s" % self.get_name())
+        self.debug("Responding to search for %s" % self.get_name())
         date_str = email.utils.formatdate(timeval=None, localtime=False, usegmt=True)
         location_url = self.root_url % {'ip_address' : self.ip_address, 'port' : self.port}
         message = ("HTTP/1.1 200 OK\r\n"
@@ -112,14 +114,14 @@ class Fauxmo(UPNPDevice):
             self.action_handler = action_handler
         else:
             self.action_handler = self
-        print("FauxMo device '%s' ready on %s:%s" % (self.name, self.ip_address, self.port))
+        self.debug("FauxMo device '%s' ready on %s:%s" % (self.name, self.ip_address, self.port))
 
     def get_name(self):
         return self.name
 
     def handle_request(self, data, sender, socket):
         if data.find('GET /setup.xml HTTP/1.1') == 0:
-            print("Responding to setup.xml for %s" % self.name)
+            self.debug("Responding to setup.xml for %s" % self.name)
             xml = SETUP_XML % {'device_name' : self.name, 'device_serial' : self.serial}
             date_str = email.utils.formatdate(timeval=None, localtime=False, usegmt=True)
             message = ("HTTP/1.1 200 OK\r\n"
@@ -137,15 +139,15 @@ class Fauxmo(UPNPDevice):
             success = False
             if data.find('<BinaryState>1</BinaryState>') != -1:
                 # on
-                print("Responding to ON for %s" % self.name)
+                self.debug("Responding to ON for %s" % self.name)
                 success = self.action_handler.on()
             elif data.find('<BinaryState>0</BinaryState>') != -1:
                 # off
-                print("Responding to OFF for %s" % self.name)
+                self.debug("Responding to OFF for %s" % self.name)
                 success = self.action_handler.off()
             else:
-                print("Unknown Binary State request:")
-                print(data)
+                self.debug("Unknown Binary State request:")
+                self.debug(data)
             if success:
                 # The echo is happy with the 200 status code and doesn't
                 # appear to care about the SOAP response body
@@ -163,7 +165,7 @@ class Fauxmo(UPNPDevice):
                            "%s" % (len(soap), date_str, soap))
                 socket.send(message)
         else:
-            print(data)
+            self.debug(data)
 
     def on(self):
         return False
@@ -172,7 +174,7 @@ class Fauxmo(UPNPDevice):
         return True
 
 
-class UPNPBroadcastResponder(object):
+class UPNPBroadcastResponder(Loggable):
     TIMEOUT = 0
 
     def __init__(self):
@@ -193,20 +195,20 @@ class UPNPBroadcastResponder(object):
             try:
                 self.ssock.bind(('',self.port))
             except Exception, e:
-                print("WARNING: Failed to bind %s:%d: %s" , (self.ip,self.port,e))
+                self.debug("WARNING: Failed to bind %s:%d: %s" , (self.ip,self.port,e))
                 ok = False
 
             try:
                 self.ssock.setsockopt(socket.IPPROTO_IP,socket.IP_ADD_MEMBERSHIP,self.mreq)
             except Exception, e:
-                print('WARNING: Failed to join multicast group:',e)
+                self.debug('WARNING: Failed to join multicast group:',e)
                 ok = False
 
         except Exception, e:
-            print("Failed to initialize UPnP sockets:",e)
+            self.debug("Failed to initialize UPnP sockets:",e)
             return False
         if ok:
-            print("Listening for UPnP broadcasts")
+            self.debug("Listening for UPnP broadcasts")
 
     def fileno(self):
         return self.ssock.fileno()
@@ -236,9 +238,9 @@ class UPNPBroadcastResponder(object):
             else:
                 return False, False
         except Exception, e:
-            print(e)
+            self.debug(e)
             return False, False
 
     def add_device(self, device):
         self.devices.append(device)
-        print("UPnP broadcast listener: new device registered")
+        self.debug("UPnP broadcast listener: new device registered")

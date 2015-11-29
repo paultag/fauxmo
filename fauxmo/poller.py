@@ -1,6 +1,8 @@
 import select
+from . import Loggable
 
-class Poller:
+
+class Poller(Loggable):
     def __init__(self):
         if 'poll' in dir(select):
             self.use_poll = True
