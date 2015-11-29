@@ -1,129 +1,31 @@
 #!/usr/bin/env python
 
-"""
-The MIT License (MIT)
-
-Copyright (c) 2015 Maker Musings
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
-
-# For a complete discussion, see http://www.makermusings.com
-
 import email.utils
-import requests
 import select
-import socket
 import struct
-import sys
-import time
-import urllib
+import socket
 import uuid
+import time
+
+from .protocol import SETUP_XML
 
 
-
-# This XML is the minimum needed to define one of our virtual switches
-# to the Amazon Echo
-
-SETUP_XML = """<?xml version="1.0"?>
-<root>
-  <device>
-    <deviceType>urn:MakerMusings:device:controllee:1</deviceType>
-    <friendlyName>%(device_name)s</friendlyName>
-    <manufacturer>Belkin International Inc.</manufacturer>
-    <modelName>Emulated Socket</modelName>
-    <modelNumber>3.1415</modelNumber>
-    <UDN>uuid:Socket-1_0-%(device_serial)s</UDN>
-  </device>
-</root>
-"""
-
-
-DEBUG = False
-
-def dbg(msg):
-    global DEBUG
-    if DEBUG:
-        print msg
-        sys.stdout.flush()
-
-
-# A simple utility class to wait for incoming data to be
-# ready on a socket.
-
-class poller:
-    def __init__(self):
-        if 'poll' in dir(select):
-            self.use_poll = True
-            self.poller = select.poll()
-        else:
-            self.use_poll = False
-        self.targets = {}
-
-    def add(self, target, fileno = None):
-        if not fileno:
-            fileno = target.fileno()
-        if self.use_poll:
-            self.poller.register(fileno, select.POLLIN)
-        self.targets[fileno] = target
-
-    def remove(self, target, fileno = None):
-        if not fileno:
-            fileno = target.fileno()
-        if self.use_poll:
-            self.poller.unregister(fileno)
-        del(self.targets[fileno])
-
-    def poll(self, timeout = 0):
-        if self.use_poll:
-            ready = self.poller.poll(timeout)
-        else:
-            ready = []
-            if len(self.targets) > 0:
-                (rlist, wlist, xlist) = select.select(self.targets.keys(), [], [], timeout)
-                ready = [(x, None) for x in rlist]
-        for one_ready in ready:
-            target = self.targets.get(one_ready[0], None)
-            if target:
-                target.do_read(one_ready[0])
- 
-
-# Base class for a generic UPnP device. This is far from complete
-# but it supports either specified or automatic IP address and port
-# selection.
-
-class upnp_device(object):
+class UPNPDevice(object):
     this_host_ip = None
 
     @staticmethod
     def local_ip_address():
-        if not upnp_device.this_host_ip:
+        if not UPNPDevice.this_host_ip:
             temp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
                 temp_socket.connect(('8.8.8.8', 53))
-                upnp_device.this_host_ip = temp_socket.getsockname()[0]
+                UPNPDevice.this_host_ip = temp_socket.getsockname()[0]
             except:
-                upnp_device.this_host_ip = '127.0.0.1'
+                UPNPDevice.this_host_ip = '127.0.0.1'
             del(temp_socket)
-            dbg("got local address of %s" % upnp_device.this_host_ip)
-        return upnp_device.this_host_ip
-        
+            print("got local address of %s" % UPNPDevice.this_host_ip)
+        return UPNPDevice.this_host_ip
+
 
     def __init__(self, listener, poller, port, root_url, server_version, persistent_uuid, other_headers = None, ip_address = None):
         self.listener = listener
@@ -138,7 +40,7 @@ class upnp_device(object):
         if ip_address:
             self.ip_address = ip_address
         else:
-            self.ip_address = upnp_device.local_ip_address()
+            self.ip_address = UPNPDevice.local_ip_address()
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((self.ip_address, self.port))
@@ -170,9 +72,9 @@ class upnp_device(object):
 
     def get_name(self):
         return "unknown"
-        
+
     def respond_to_search(self, destination, search_target):
-        dbg("Responding to search for %s" % self.get_name())
+        print("Responding to search for %s" % self.get_name())
         date_str = email.utils.formatdate(timeval=None, localtime=False, usegmt=True)
         location_url = self.root_url % {'ip_address' : self.ip_address, 'port' : self.port}
         message = ("HTTP/1.1 200 OK\r\n"
@@ -193,9 +95,8 @@ class upnp_device(object):
         temp_socket.sendto(message, destination)
  
 
-# This subclass does the bulk of the work to mimic a WeMo switch on the network.
 
-class fauxmo(upnp_device):
+class Fauxmo(UPNPDevice):
     @staticmethod
     def make_uuid(name):
         return ''.join(["%x" % sum([ord(c) for c in name])] + ["%x" % ord(c) for c in "%sfauxmo!" % name])[:14]
@@ -206,19 +107,19 @@ class fauxmo(upnp_device):
         self.ip_address = ip_address
         persistent_uuid = "Socket-1_0-" + self.serial
         other_headers = ['X-User-Agent: redsonic']
-        upnp_device.__init__(self, listener, poller, port, "http://%(ip_address)s:%(port)s/setup.xml", "Unspecified, UPnP/1.0, Unspecified", persistent_uuid, other_headers=other_headers, ip_address=ip_address)
+        super(Fauxmo, self).__init__(listener, poller, port, "http://%(ip_address)s:%(port)s/setup.xml", "Unspecified, UPnP/1.0, Unspecified", persistent_uuid, other_headers=other_headers, ip_address=ip_address)
         if action_handler:
             self.action_handler = action_handler
         else:
             self.action_handler = self
-        dbg("FauxMo device '%s' ready on %s:%s" % (self.name, self.ip_address, self.port))
+        print("FauxMo device '%s' ready on %s:%s" % (self.name, self.ip_address, self.port))
 
     def get_name(self):
         return self.name
 
     def handle_request(self, data, sender, socket):
         if data.find('GET /setup.xml HTTP/1.1') == 0:
-            dbg("Responding to setup.xml for %s" % self.name)
+            print("Responding to setup.xml for %s" % self.name)
             xml = SETUP_XML % {'device_name' : self.name, 'device_serial' : self.serial}
             date_str = email.utils.formatdate(timeval=None, localtime=False, usegmt=True)
             message = ("HTTP/1.1 200 OK\r\n"
@@ -236,15 +137,15 @@ class fauxmo(upnp_device):
             success = False
             if data.find('<BinaryState>1</BinaryState>') != -1:
                 # on
-                dbg("Responding to ON for %s" % self.name)
+                print("Responding to ON for %s" % self.name)
                 success = self.action_handler.on()
             elif data.find('<BinaryState>0</BinaryState>') != -1:
                 # off
-                dbg("Responding to OFF for %s" % self.name)
+                print("Responding to OFF for %s" % self.name)
                 success = self.action_handler.off()
             else:
-                dbg("Unknown Binary State request:")
-                dbg(data)
+                print("Unknown Binary State request:")
+                print(data)
             if success:
                 # The echo is happy with the 200 status code and doesn't
                 # appear to care about the SOAP response body
@@ -262,7 +163,7 @@ class fauxmo(upnp_device):
                            "%s" % (len(soap), date_str, soap))
                 socket.send(message)
         else:
-            dbg(data)
+            print(data)
 
     def on(self):
         return False
@@ -271,16 +172,7 @@ class fauxmo(upnp_device):
         return True
 
 
-# Since we have a single process managing several virtual UPnP devices,
-# we only need a single listener for UPnP broadcasts. When a matching
-# search is received, it causes each device instance to respond.
-#
-# Note that this is currently hard-coded to recognize only the search
-# from the Amazon Echo for WeMo devices. In particular, it does not
-# support the more common root device general search. The Echo
-# doesn't search for root devices.
-
-class upnp_broadcast_responder(object):
+class UPNPBroadcastResponder(object):
     TIMEOUT = 0
 
     def __init__(self):
@@ -301,20 +193,20 @@ class upnp_broadcast_responder(object):
             try:
                 self.ssock.bind(('',self.port))
             except Exception, e:
-                dbg("WARNING: Failed to bind %s:%d: %s" , (self.ip,self.port,e))
+                print("WARNING: Failed to bind %s:%d: %s" , (self.ip,self.port,e))
                 ok = False
 
             try:
                 self.ssock.setsockopt(socket.IPPROTO_IP,socket.IP_ADD_MEMBERSHIP,self.mreq)
             except Exception, e:
-                dbg('WARNING: Failed to join multicast group:',e)
+                print('WARNING: Failed to join multicast group:',e)
                 ok = False
 
         except Exception, e:
-            dbg("Failed to initialize UPnP sockets:",e)
+            print("Failed to initialize UPnP sockets:",e)
             return False
         if ok:
-            dbg("Listening for UPnP broadcasts")
+            print("Listening for UPnP broadcasts")
 
     def fileno(self):
         return self.ssock.fileno()
@@ -344,80 +236,9 @@ class upnp_broadcast_responder(object):
             else:
                 return False, False
         except Exception, e:
-            dbg(e)
+            print(e)
             return False, False
 
     def add_device(self, device):
         self.devices.append(device)
-        dbg("UPnP broadcast listener: new device registered")
-
-
-# This is an example handler class. The fauxmo class expects handlers to be
-# instances of objects that have on() and off() methods that return True
-# on success and False otherwise.
-#
-# This example class takes two full URLs that should be requested when an on
-# and off command are invoked respectively. It ignores any return data.
-
-class rest_api_handler(object):
-    def __init__(self, on_cmd, off_cmd):
-        self.on_cmd = on_cmd
-        self.off_cmd = off_cmd
-
-    def on(self):
-        r = requests.get(self.on_cmd)
-        return r.status_code == 200
-
-    def off(self):
-        r = requests.get(self.off_cmd)
-        return r.status_code == 200
-
-
-# Each entry is a list with the following elements:
-#
-# name of the virtual switch
-# object with 'on' and 'off' methods
-# port # (optional; may be omitted)
-
-# NOTE: As of 2015-08-17, the Echo appears to have a hard-coded limit of
-# 16 switches it can control. Only the first 16 elements of the FAUXMOS
-# list will be used.
-
-FAUXMOS = [
-    ['office lights', rest_api_handler('http://192.168.5.4/ha-api?cmd=on&a=office', 'http://192.168.5.4/ha-api?cmd=off&a=office')],
-    ['kitchen lights', rest_api_handler('http://192.168.5.4/ha-api?cmd=on&a=kitchen', 'http://192.168.5.4/ha-api?cmd=off&a=kitchen')],
-]
-
-
-if len(sys.argv) > 1 and sys.argv[1] == '-d':
-    DEBUG = True
-
-# Set up our singleton for polling the sockets for data ready
-p = poller()
-
-# Set up our singleton listener for UPnP broadcasts
-u = upnp_broadcast_responder()
-u.init_socket()
-
-# Add the UPnP broadcast listener to the poller so we can respond
-# when a broadcast is received.
-p.add(u)
-
-# Create our FauxMo virtual switch devices
-for one_faux in FAUXMOS:
-    if len(one_faux) == 2:
-        # a fixed port wasn't specified, use a dynamic one
-        one_faux.append(0)
-    switch = fauxmo(one_faux[0], u, p, None, one_faux[2], action_handler = one_faux[1])
-
-dbg("Entering main loop\n")
-
-while True:
-    try:
-        # Allow time for a ctrl-c to stop the process
-        p.poll(100)
-        time.sleep(0.1)
-    except Exception, e:
-        dbg(e)
-        break
-
+        print("UPnP broadcast listener: new device registered")
