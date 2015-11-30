@@ -21,4 +21,4 @@ def serve(*devices):
             time.sleep(0.1)
         except Exception as e:
             logger.error(e)
-            break
+            raise
