@@ -1,18 +1,33 @@
 import requests
-from . import Loggable
+import os.path
+from . import Loggable, Fauxmo
 
 
-class RESTAPIHandler(Loggable):
-    def __init__(self, on_cmd, off_cmd):
-        self.on_cmd = on_cmd
-        self.off_cmd = off_cmd
+class Switch(Fauxmo):
+    def __init__(self, poller, ip_address=None, port=0, **kwargs):
+        self.port = port
+        super(Switch, self).__init__(
+            self.name,
+            ip_address=ip_address,
+            poller=poller,
+            port=port,
+            action_handler=self,
+        )
+
+    def on(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    def off(self, *args, **kwargs):
+        raise NotImplementedError()
+
+
+class HTTPSwitch(Switch):
+    def request(self, url):
+        r = requests.get(url)
+        return r.status_code == 200
 
     def on(self):
-        r = requests.get(self.on_cmd)
-        self.debug("On!")
-        return r.status_code == 200
+        return self.request(os.path.join(self.host, self.on_url))
 
     def off(self):
-        r = requests.get(self.off_cmd)
-        self.debug("Off!")
-        return r.status_code == 200
+        return self.request(os.path.join(self.host, self.off_url))

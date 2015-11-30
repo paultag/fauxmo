@@ -29,8 +29,7 @@ class UPNPDevice(Loggable):
         return UPNPDevice.this_host_ip
 
 
-    def __init__(self, listener, poller, port, root_url, server_version, persistent_uuid, other_headers = None, ip_address = None):
-        self.listener = listener
+    def __init__(self, poller, port, root_url, server_version, persistent_uuid, other_headers = None, ip_address=None):
         self.poller = poller
         self.port = port
         self.root_url = root_url
@@ -51,7 +50,6 @@ class UPNPDevice(Loggable):
             self.port = self.socket.getsockname()[1]
         self.poller.add(self)
         self.client_sockets = {}
-        self.listener.add_device(self)
 
     def fileno(self):
         return self.socket.fileno()
@@ -103,13 +101,13 @@ class Fauxmo(UPNPDevice):
     def make_uuid(name):
         return ''.join(["%x" % sum([ord(c) for c in name])] + ["%x" % ord(c) for c in "%sfauxmo!" % name])[:14]
 
-    def __init__(self, name, listener, poller, ip_address, port, action_handler = None):
+    def __init__(self, name, poller, ip_address, port, action_handler=None):
         self.serial = self.make_uuid(name)
         self.name = name
         self.ip_address = ip_address
         persistent_uuid = "Socket-1_0-" + self.serial
         other_headers = ['X-User-Agent: redsonic']
-        super(Fauxmo, self).__init__(listener, poller, port, "http://%(ip_address)s:%(port)s/setup.xml", "Unspecified, UPnP/1.0, Unspecified", persistent_uuid, other_headers=other_headers, ip_address=ip_address)
+        super(Fauxmo, self).__init__(poller, port, "http://%(ip_address)s:%(port)s/setup.xml", "Unspecified, UPnP/1.0, Unspecified", persistent_uuid, other_headers=other_headers, ip_address=ip_address)
         if action_handler:
             self.action_handler = action_handler
         else:
