@@ -4,6 +4,7 @@ import fauxmo.log
 import logging
 import pychromecast
 import requests
+import os
 
 
 class ChromecastSwitch(Switch):
@@ -32,7 +33,16 @@ class HackersSwitch(ChromecastSwitch):
     media_type = "video/mp4"
     chromecast = "Projector"
 
+    def __init__(self, *args, **kwargs):
+        super(HackersSwitch, self).__init__(*args, **kwargs)
+        with open(os.path.expanduser("~/.huerc"), 'r') as fd:
+            self.key = fd.read().strip()
+
     def on(self):
+        requests.put(
+            "http://192.168.1.55/api/{}/groups/0/action".format(self.key),
+            data='{"on": true, "bri": 32}',
+        )
         requests.get("http://192.168.1.50/projector/power/on")
         return super(HackersSwitch, self).on()
 
